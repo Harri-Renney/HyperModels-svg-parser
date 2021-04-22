@@ -64,6 +64,8 @@ const LIGHTPAD_WIDTH: u32  = 15;
 const LIGHTPAD_HEIGHT: u32 = 15;
 const LIGHTPAD_DEVICE: &'static str = "lightpad";
 
+const CUSTOM_DEVICE: &'static str = "custom_device";
+
 const UNSUPPORTED_DEVICE: &'static str = "unknown";
 
 // SVG controller attributes 
@@ -591,10 +593,18 @@ fn main() {
                 
                 match attributes.get("interface_device") {
                     Some(attr) => {
-                        let (w,h,n)   = interface_device(attr);
-                        device_width  = w;
-                        device_height = h;
-                        device_name   = n.to_string();
+                        //Checks for the special case that a custom device with dimensions read from the SVG itself.
+                        if attr.to_string() == CUSTOM_DEVICE {
+                            device_width =  attributes.get("width").unwrap().parse().unwrap();
+                            device_height =  attributes.get("height").unwrap().parse().unwrap();
+                            device_name = CUSTOM_DEVICE.to_string();
+                        }
+                        else {
+                            let (w,h,n)   = interface_device(attr);
+                            device_width  = w;
+                            device_height = h;
+                            device_name   = n.to_string();
+                        }
                     },
                     _ => {
 
