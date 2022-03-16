@@ -7,6 +7,12 @@
 //! 
 //! Copyright: Benedict R. Gaster (2019)
 
+extern crate base64;
+
+
+use std::str;
+use base64::{encode, decode};
+
 extern crate svg;
 extern crate usvg;
 extern crate serde_json;
@@ -23,6 +29,7 @@ extern crate picto;
 use picto::color::*;
 
 use serde_json::json;
+use std::fs;
 
 mod path_convert;
 mod stroke_convert;
@@ -64,7 +71,7 @@ const LIGHTPAD_WIDTH: u32  = 15;
 const LIGHTPAD_HEIGHT: u32 = 15;
 const LIGHTPAD_DEVICE: &'static str = "lightpad";
 
-const CUSTOM_DEVICE: &'static str = "custom_device";
+const CUSTOM_DEVICE: &'static str = "custom";
 
 const UNSUPPORTED_DEVICE: &'static str = "unknown";
 
@@ -74,6 +81,7 @@ const INTERFACE_TYPE_ATTR: &'static str        = "interface_type";
 const INTERFACE_OSC_ARGS_ATTR: &'static str    = "interface_osc_args";
 const INTERFACE_MIN_ATTR: &'static str         = "min";
 const INTERFACE_MAX_ATTR: &'static str         = "max";
+const INTERFACE_PHYSICS_KERNEL: &'static str    = "physics_kernel";
 
 //-----------------------------------------------------------------------------
 // tessellation and rasterization
@@ -309,18 +317,29 @@ fn path_tessellate(path: &str) -> Mesh {
         <path d="{}" />
       </svg>"#, path);
 
+    println!("svg: {:?}", svg);
+
     // use usvg to simplify our svg and Lyon to tesselate
     let mut fill_tess = FillTessellator::new();
     let mut stroke_tess = StrokeTessellator::new();
     let transform = Transform2D::identity();
 
+    let mut splitPath = path.split_whitespace();
+    let mut listPath = splitPath.collect::<Vec<_>>();
+    let mut path_builder = Path::builder();
+    path_builder.move_to(point(listPath[1].parse().unwrap(), listPath[2].parse().unwrap()));
+    path_builder.line_to(point(listPath[4].parse().unwrap(), listPath[5].parse().unwrap()));
+    path_builder.close();
+    let path = path_builder.build();
+
     let rtree = usvg::Tree::from_str(&svg, &usvg::Options::default()).unwrap();
     for node in rtree.root().descendants() {
         if let usvg::NodeKind::Path(ref p) = *node.borrow() {
             if let Some(ref fill) = p.fill {
-                fill_tess.tessellate_path(
-                        convert_path(p),
-                        &FillOptions::tolerance(0.01),
+                
+                stroke_tess.tessellate_path(
+                        path.iter(),
+                        &StrokeOptions::default(),
                         &mut BuffersBuilder::new(
                             &mut mesh,
                             VertexCtor { 
@@ -329,6 +348,7 @@ fn path_tessellate(path: &str) -> Mesh {
                             }
                         ),
                 ).expect("Error during tesselation!");
+                println!("Fill path tesselator {:?}", mesh);
             }
 
             if let Some(ref stroke) = p.stroke {
@@ -345,6 +365,7 @@ fn path_tessellate(path: &str) -> Mesh {
                         },
                     ),
                 );
+                println!("Stroke path tesselator {:?}", mesh);
             }
         }
     }
@@ -441,7 +462,6 @@ fn rasterize<T,B>(
      width: u32, height: u32,
      mesh: &Mesh, buffer: &mut B, v: &T)
     where B : Buffer<T> {
-    
     for indices in mesh.indices.chunks(3) {
         
         let points = [
@@ -567,6 +587,12 @@ fn main() {
     let illustrator = matches.opt_present("illustrator");
 
     // PNG path or ""
+    let json_path = match matches.opt_str("json") {
+        Some(x) => x,
+        None => "".to_string(),
+    };
+
+    // PNG path or ""
     let png_path = match matches.opt_str("png") {
         Some(x) => x,
         None => "".to_string(),
@@ -633,8 +659,25 @@ fn main() {
     for event in doc {
         match event {
             Event::Tag(Path, _, attributes) => {
+                let hello = b"hello rustaceans";
+                let encoded = encode(hello);
+                let decoded = decode(&encoded).unwrap();
+
+                println!("origin: {}", str::from_utf8(hello).unwrap());
+                println!("base64 encoded: {}", encoded);
+                println!("back to origin: {}", str::from_utf8(&decoded).unwrap());
+
+                let kernel = attributes.get(INTERFACE_PHYSICS_KERNEL).unwrap().to_string();
+                println!("THE STRING: {}", kernel);
+                let decoded  = decode(&kernel).unwrap();
+                println!("HELOOOO: {}", str::from_utf8(&decoded).unwrap());
+                let decodedStr = str::from_utf8(&decoded).unwrap();
+                
                 let data = attributes.get("d").unwrap();
                 let mesh = path_tessellate(data);
+
+                println!("Path {:?}", data);
+                println!("Mesh {:?}", mesh);
                 
                 // rasterize to PNG, if requested
                 if png_path.len() > 0 {
@@ -644,6 +687,8 @@ fn main() {
                 // add to interface buffer
                 let id = interface.id();
                 rasterize(device_width, device_height, &mesh, &mut interface, &id);
+
+                let physicsKernel = decodedStr;
 
                 if illustrator {
                     // now handle the data-name attribute, which contains info about the type 
@@ -675,7 +720,8 @@ fn main() {
                             "id": id,
                             "type_id": typ,
                             "args" : args_json,
-                            "address" : msg
+                            "address" : msg,
+                            "physics_kernel": physicsKernel,
                         });
 
                         controllers.push(path);
@@ -709,7 +755,8 @@ fn main() {
                             "id": id,
                             "type_id": typ,
                             "args" : args_json,
-                            "address" : msg
+                            "address" : msg,
+                            "physics_kernel": physicsKernel,
                         });
 
                         controllers.push(path);
@@ -717,7 +764,21 @@ fn main() {
                 }  
             },
             Event::Tag(Rectangle, _, attributes) => {
-                
+
+                let hello = b"hello rustaceans";
+                let encoded = encode(hello);
+                let decoded = decode(&encoded).unwrap();
+
+                println!("origin: {}", str::from_utf8(hello).unwrap());
+                println!("base64 encoded: {}", encoded);
+                println!("back to origin: {}", str::from_utf8(&decoded).unwrap());
+
+                let kernel = attributes.get(INTERFACE_PHYSICS_KERNEL).unwrap().to_string();
+                println!("THE STRING: {}", kernel);
+                let decoded  = decode(&kernel).unwrap();
+                println!("HELOOOO: {}", str::from_utf8(&decoded).unwrap());
+                let decodedStr = str::from_utf8(&decoded).unwrap();
+
                 let x = handle_int_attribute(attributes.get("x").unwrap(), illustrator);
                 let y = handle_int_attribute(attributes.get("y").unwrap(), illustrator);
                 let width = handle_int_attribute(attributes.get("width").unwrap(), illustrator);
@@ -772,6 +833,7 @@ fn main() {
                     }
                 }
                 else {
+                    //println!("HELOOOO: {}", attributes.get(INTERFACE_PHYSICS_KERNEL).unwrap());
                     let typ = handle_type(attributes.get(INTERFACE_TYPE_ATTR).unwrap());
                     // none is a special case used for printing border for cutout, not included in interface
 
@@ -856,6 +918,8 @@ fn main() {
                             }
                         };
 
+                        let physicsKernel = decodedStr;
+
                         if typ == "vert_slider" || typ == "horz_slider" {
                             let min = (attributes.get(INTERFACE_MIN_ATTR).unwrap() as &str).parse::<u32>().unwrap();
                             let max = (attributes.get(INTERFACE_MAX_ATTR).unwrap() as &str).parse::<u32>().unwrap();
@@ -869,6 +933,7 @@ fn main() {
                                 "rgb" : rgb,
                                 "pressure": pressure,
                                 "generate_coords": with_coords,
+                                "physics_kernel": physicsKernel,
                             });
 
                             controllers.push(rect);
@@ -905,6 +970,7 @@ fn main() {
                                     "generate_coords": with_coords,
                                     "on": args_onoff[0],
                                     "off": args_onoff[1],
+                                    "physics_kernel": physicsKernel,
                                 });
 
                                 controllers.push(rect);
@@ -920,6 +986,7 @@ fn main() {
                                     "generate_move": generate_move,
                                     "generate_end": generate_end,
                                     "generate_coords": with_coords,
+                                    "physics_kernel": physicsKernel,
                                 });
 
                                 controllers.push(rect);
@@ -937,6 +1004,21 @@ fn main() {
                     handle_int_attribute(attributes.get("cx").unwrap(), illustrator),
                     handle_int_attribute(attributes.get("cy").unwrap(), illustrator));
                 let r = handle_int_attribute(attributes.get("r").unwrap(), illustrator);
+
+                //@TODO - Tidy up how physics kernel added!
+                let hello = b"hello rustaceans";
+                let encoded = encode(hello);
+                let decoded = decode(&encoded).unwrap();
+
+                println!("origin: {}", str::from_utf8(hello).unwrap());
+                println!("base64 encoded: {}", encoded);
+                println!("back to origin: {}", str::from_utf8(&decoded).unwrap());
+
+                let kernel = attributes.get(INTERFACE_PHYSICS_KERNEL).unwrap().to_string();
+                println!("THE STRING: {}", kernel);
+                let decoded  = decode(&kernel).unwrap();
+                println!("HELOOOO: {}", str::from_utf8(&decoded).unwrap());
+                let decodedStr = str::from_utf8(&decoded).unwrap();
 
                 let mesh = circle_tessellate(cpoint,r);
                 // rasterize to PNG, if requested
@@ -1010,6 +1092,8 @@ fn main() {
                                 }
                             }
 
+                            let physicsKernel = decodedStr;
+
                             let mut args_onoff = vec![];
                             match attributes.get("on") {
                                 Some(value) => {
@@ -1041,6 +1125,7 @@ fn main() {
                                     "address" : msg,
                                     "on": args_onoff[0],
                                     "off": args_onoff[1],
+                                    "physics_kernel": physicsKernel,
                                 });
 
                                 controllers.push(circle);
@@ -1051,7 +1136,8 @@ fn main() {
                                     "id": id,
                                     "type_id": typ,
                                     "args" : args_json,
-                                    "address" : msg
+                                    "address" : msg,
+                                    "physics_kernel": physicsKernel,
                                 });
 
                                 controllers.push(circle);
@@ -1162,7 +1248,12 @@ fn main() {
         "interface": device_name,
     });
 
-    println!("{}", interface_json.to_string());
+    //println!("{}", interface_json.to_string());
+
+    if json_path.len() > 0 {
+        let data = interface_json.to_string();
+        fs::write(json_path, data).expect("Unable to write file");
+    }
 
     // write PNG image of sensel interface
     if png_path.len() > 0 {
